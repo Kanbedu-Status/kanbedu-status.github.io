@@ -7,6 +7,11 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      test_alert:
+        description: Send a test message to the Discord channel
+        type: boolean
+        default: false
 
 permissions: {}
 
@@ -48,6 +53,9 @@ jobs:
         id: monitor
         # Runs on to save and deploy, then the last step reports the failure.
         continue-on-error: true
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          TEST_ALERT: ${{ inputs.test_alert }}
         run: node monitor/run.mjs --state state --site site --out _site --incidents incidents/incidents.json
 
       - name: Save state

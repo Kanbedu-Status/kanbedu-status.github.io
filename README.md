@@ -45,6 +45,26 @@ Before going public, tell Ming Hao: the page carries the product's name.
 
 Do not add a custom domain under `kanbedu.com`. GitHub would redirect the `github.io` address to it, and that domain's DNS is on Vercel.
 
+## Scheduled runs
+
+GitHub's schedule alone is not reliable here, so cron-job.org starts a run every 5 minutes. The cron line stays as a backup.
+
+| Setting | Value |
+|---|---|
+| URL | `https://api.github.com/repos/Kanbedu-Status/kanbedu-status.github.io/actions/workflows/monitor.yml/dispatches` |
+| Method | POST |
+| Body | `{"ref":"main"}` |
+| Headers | `Authorization: Bearer <token>`, `Accept: application/vnd.github+json`, `X-GitHub-Api-Version: 2022-11-28`, `Content-Type: application/json` |
+| Token | Fine-grained, resource owner `Kanbedu-Status`, only this repository, Actions: Read and write, nothing else |
+
+The token can start and read runs in this one repository, and nothing else. It expires, so note the date and replace it before then, or the page goes to Monitor Delayed.
+
+## Outage alerts
+
+Set the `DISCORD_WEBHOOK_URL` repository secret to turn alerts on. One message when a check is confirmed down, one if the set of failing checks changes, and one on recovery. Nothing is sent during posted maintenance. To test the channel, run the Monitor workflow with `test_alert` on.
+
+Alerts run inside the monitor, so they stop if the runs stop. cron-job.org's own failure email covers that.
+
 ## Posting an incident
 
 Post on the admin dashboard at kanbedu.com: the incident shows here too. Use the file below only when the app is down and the dashboard cannot be reached. It works from a phone. A copy of an official incident, with the same title and start minute, shows once.

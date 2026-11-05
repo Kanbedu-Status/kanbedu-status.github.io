@@ -5,6 +5,7 @@
 import { cp, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { decideAlert, isValidWebhook, sendDiscord } from "./alerts.mjs";
 import { config as defaultConfig } from "./config.mjs";
 import { fetchOfficial, fetchProvider, runCheck } from "./checks.mjs";
 import { validateIncidents } from "./incidents.mjs";
@@ -49,7 +50,7 @@ export async function runChecks(state, nowIso, cfg, fetchImpl, wait) {
   return results;
 }
 
-export async function monitorOnce({ stateDir, siteDir, outDir, incidentsPath, cfg = defaultConfig, fetchImpl = fetch, wait, now = () => new Date() }) {
+export async function monitorOnce({ stateDir, siteDir, outDir, incidentsPath, webhookUrl, cfg = defaultConfig, fetchImpl = fetch, wait, now = () => new Date() }) {
   const statePath = join(stateDir, "state.json");
   const lastGoodPath = join(stateDir, "incidents-last-good.json");
   await mkdir(stateDir, { recursive: true });
@@ -78,6 +79,15 @@ export async function monitorOnce({ stateDir, siteDir, outDir, incidentsPath, cf
   if (official) state.official = official;
   const publicStatus = buildPublicStatus(state, incidents, inconclusive, startedAt, cfg);
 
+  // A run that learned nothing changes no alert. Only a delivered message moves
+  // the record, so a failed send retries on the next run.
+  let alert = null;
+  const message = isValidWebhook(webhookUrl) && !inconclusive ? decideAlert(state.alertedDownIds, publicStatus) : null;
+  if (message) {
+    alert = await sendDiscord(webhookUrl, message.content, fetchImpl);
+    if (alert === "sent") state.alertedDownIds = message.ids;
+  }
+
   await writeAtomic(statePath, JSON.stringify(state));
 
   await mkdir(outDir, { recursive: true });
@@ -85,7 +95,7 @@ export async function monitorOnce({ stateDir, siteDir, outDir, incidentsPath, cf
   await mkdir(join(outDir, "data"), { recursive: true });
   await writeAtomic(join(outDir, "data", "status.json"), JSON.stringify(publicStatus));
 
-  return { state, publicStatus, providers, official, inconclusive, incidentErrors };
+  return { state, publicStatus, providers, official, inconclusive, incidentErrors, alert };
 }
 
 function parseArgs(argv) {
@@ -97,7 +107,18 @@ function parseArgs(argv) {
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const args = parseArgs(process.argv.slice(2));
   try {
-    const { state, publicStatus, providers, official, inconclusive, incidentErrors } = await monitorOnce({
+    const webhookUrl = process.env.DISCORD_WEBHOOK_URL || undefined;
+    if (webhookUrl && !isValidWebhook(webhookUrl)) {
+      console.error("DISCORD_WEBHOOK_URL is not a Discord webhook address. Alerts are off.");
+      process.exitCode = 1;
+    }
+    if (process.env.TEST_ALERT === "true" && isValidWebhook(webhookUrl)) {
+      const result = await sendDiscord(webhookUrl, "**Kanbedu monitor test**\nAlerts reach this channel. Nothing is wrong.");
+      console.log(`Test alert: ${result}`);
+      if (result !== "sent") process.exitCode = 1;
+    }
+    const { state, publicStatus, providers, official, inconclusive, incidentErrors, alert } = await monitorOnce({
+      webhookUrl,
       stateDir: args.state ?? "state",
       siteDir: args.site ?? "site",
       outDir: args.out ?? "_site",
@@ -109,6 +130,11 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     for (const provider of providers) console.log(`${provider.id}: ${provider.indicator}`);
     console.log(official ? `official: ${official.status}, ${official.incidents.length} incidents` : "official: no answer, kept the last copy");
     if (inconclusive) console.log("Run was inconclusive and was not recorded against Kanbedu.");
+    if (alert) console.log(`Discord alert: ${alert}`);
+    if (alert === "broken") {
+      console.error("Discord refused the webhook. Replace the DISCORD_WEBHOOK_URL secret.");
+      process.exitCode = 1;
+    }
     if (incidentErrors.length > 0) {
       console.error("incidents/incidents.json is invalid. The last good list was published.");
       for (const message of incidentErrors) console.error(`  ${message}`);
