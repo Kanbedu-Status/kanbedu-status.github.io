@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'">
+  <meta name="referrer" content="no-referrer">
+  <meta name="color-scheme" content="light dark">
+  <meta name="description" content="Live availability for Kanbedu, checked from outside its hosting, with 90 days of history and past incidents.">
+  <title>Kanbedu Status</title>
+  <link rel="icon" href="assets/icon-192.png">
+  <link rel="preload" href="fonts/Geist-Regular.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="wrap header-row">
+      <a class="brand" href="https://kanbedu.com/landing">Kanbedu</a>
+      <a class="header-link" href="https://kanbedu.com/landing">Go to Kanbedu</a>
+    </div>
+  </header>
+  <main class="wrap main">
+    <p class="eyebrow">Status</p>
+    <h1 class="title">Kanbedu Status</h1>
+    <noscript>
+      <p class="banner-body">This page needs JavaScript to show live status. The raw data is at <a class="text-link" href="data/status.json">data/status.json</a>.</p>
+    </noscript>
+    <div id="app">
+      <section class="card banner"><p class="banner-body">Loading status...</p></section>
+    </div>
+  </main>
+  <footer class="wrap site-footer">
+    <p>This page runs separately from Kanbedu, so it stays up during a Kanbedu outage. Checks run about every 5 minutes from GitHub's servers, can run late, and do not come from Malaysia, so response times are a guide. The website and log in page are checked every 30 minutes, or sooner if something looks wrong. It does not check signed-in actions, email delivery or notifications. Days and times are in Malaysia time (MYT).</p>
+  </footer>
+  <div id="tip" class="tip" role="status" hidden></div>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

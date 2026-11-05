@@ -1,0 +1,83 @@
+name: Monitor
+
+on:
+  schedule:
+    # Avoids the start of the hour, when GitHub documents the longest delays.
+    - cron: "3-58/5 * * * *"
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: monitor
+  cancel-in-progress: false
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    permissions:
+      contents: write
+      actions: write
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - name: Check out main
+        # v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Set up Node
+        # v7.1.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: "22"
+
+      - name: Run tests after a code change
+        if: github.event_name == 'push'
+        run: node --test
+
+      - name: Restore state
+        run: bash scripts/restore-state.sh
+
+      - name: Run checks
+        id: monitor
+        # Runs on to save and deploy, then the last step reports the failure.
+        continue-on-error: true
+        run: node monitor/run.mjs --state state --site site --out _site --incidents incidents/incidents.json
+
+      - name: Save state
+        run: bash scripts/save-state.sh
+
+      - name: Upload site
+        # v5.0.0
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9
+        with:
+          path: _site
+
+      - name: Deploy site
+        id: deploy
+        # v5.0.1
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346
+
+      - name: Keep the schedule enabled
+        # GitHub disables schedules after 60 days without repository activity.
+        # State pushes should count as activity. This is the second safeguard.
+        if: github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "$(date -u +%H)" = "00" ]; then
+            gh api -X PUT "repos/$GITHUB_REPOSITORY/actions/workflows/monitor.yml/enable" \
+              || echo "::warning::Could not refresh the workflow schedule."
+          fi
+
+      - name: Report a monitor problem
+        if: steps.monitor.outcome == 'failure'
+        run: |
+          echo "::error::The monitor step failed. Read the Run checks step above."
+          exit 1
