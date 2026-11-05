@@ -4,7 +4,8 @@ import { test } from "node:test";
 import { validateIncidents } from "../monitor/incidents.mjs";
 import {
   BANNERS,
-  averageMs,
+  allIncidents,
+  bannerBody,
   bannerKey,
   checkLabel,
   dayBars,
@@ -12,8 +13,8 @@ import {
   formatStamp,
   incidentUpdates,
   isStale,
+  parseOfficial,
   plural,
-  providerLabel,
   relativeTime,
   uptimePercent,
   visibleIncidents,
@@ -68,10 +69,6 @@ test("resolved incidents do not affect the banner", () => {
   assert.equal(bannerKey(status({}, { incidents: [incident("down", ago(1))] }), NOW), "operational");
 });
 
-test("a provider issue alone never changes the banner", () => {
-  assert.equal(bannerKey(status({}, { providers: [{ indicator: "critical" }] }), NOW), "operational");
-});
-
 test("approved wordings are verbatim", () => {
   assert.equal(BANNERS.operational.body, "Kanbedu is currently operating normally. No known issues or service disruptions are affecting the platform.");
   assert.equal(BANNERS.down.body, "Kanbedu is currently unavailable.\nWe are aware of the issue and are working to restore service as soon as possible.");
@@ -84,10 +81,6 @@ test("check labels cover no data and stale", () => {
   assert.equal(checkLabel({ lastRunAt: null, status: "operational" }, NOW, s).label, "No data yet");
   assert.equal(checkLabel(s.checks[0], NOW, s).label, "Operational");
   assert.equal(checkLabel(s.checks[0], NOW, { ...s, lastConclusiveAt: ago(40) }).label, "Not checked recently");
-});
-
-test("an unknown provider indicator is not shown as healthy", () => {
-  assert.equal(providerLabel({ indicator: "banana" }).label, "Report unavailable");
 });
 
 test("day bars give 90 days, oldest first, in Malaysia time", () => {
@@ -141,12 +134,6 @@ test("day tooltip wording", () => {
   assert.deepEqual(lines, ["Nov 4, 2026", "2 failed checks of 288", "1 brief failure, passed on the next check", "1 slow response", "Average response 500 ms"]);
 });
 
-test("average ignores failures and blocked runs", () => {
-  assert.equal(averageMs([{ outcome: "pass", ms: 100 }, { outcome: "slow", ms: 300 }, { outcome: "fail", ms: 15000 }, { outcome: "blocked", ms: 5 }]), 200);
-  assert.equal(averageMs([{ outcome: "fail", ms: 1 }]), null);
-  assert.equal(averageMs(undefined), null);
-});
-
 test("incident list keeps open ones and drops old resolved ones", () => {
   const s = { historyDays: 90, incidents: [
     { id: "old", startedAt: ago(91 * 1440), resolvedAt: ago(91 * 1440 - 60) },
@@ -191,4 +178,65 @@ test("incident validation rejects each kind of bad edit", () => {
 test("isStale boundary", () => {
   assert.equal(isStale({ lastConclusiveAt: ago(30) }, NOW), false);
   assert.equal(isStale({ lastConclusiveAt: null }, NOW), true);
+});
+
+const OFFICIAL_INCIDENT = {
+  id: "cuid1",
+  title: "Elevated errors on login and board access",
+  severity: "down",
+  message: "We identified an issue.",
+  startedAt: "2026-08-28T11:45:12.000Z",
+  resolvedAt: "2026-08-28T13:18:00.000Z",
+};
+
+test("parseOfficial keeps known fields and drops the rest", () => {
+  const parsed = parseOfficial({ status: "operational", message: null, updatedAt: "2026-10-13T22:43:00Z", updatedBy: "admin1", incidents: [{ ...OFFICIAL_INCIDENT, createdBy: "admin1" }] });
+  assert.deepEqual(parsed.incidents, [OFFICIAL_INCIDENT]);
+  assert.ok(!JSON.stringify(parsed).includes("admin1"));
+});
+
+test("parseOfficial refuses anything malformed", () => {
+  for (const bad of [
+    null,
+    "text",
+    { error: "Status is unavailable." },
+    { status: "fine", incidents: [] },
+    { status: "operational" },
+    { status: "operational", incidents: [{ ...OFFICIAL_INCIDENT, severity: "<b>" }] },
+    { status: "operational", incidents: [{ ...OFFICIAL_INCIDENT, startedAt: "soon" }] },
+    { status: "operational", incidents: [{ ...OFFICIAL_INCIDENT, resolvedAt: "later" }] },
+    { status: "operational", incidents: [null] },
+  ]) assert.equal(parseOfficial(bad), null, JSON.stringify(bad));
+});
+
+test("a local copy of an official incident shows once, and a local-only one stays", () => {
+  const local = { ...OFFICIAL_INCIDENT, id: "local-copy", startedAt: "2026-08-28T11:45:00.000Z" };
+  const other = { ...OFFICIAL_INCIDENT, id: "local-only", title: "App host down" };
+  const s = { official: { status: "operational", incidents: [OFFICIAL_INCIDENT] }, incidents: [local, other] };
+  assert.deepEqual(allIncidents(s).map((i) => i.id), ["cuid1", "local-only"]);
+});
+
+test("an official incident never ages off, matching the official page", () => {
+  const old = { ...OFFICIAL_INCIDENT, startedAt: ago(400 * 1440), resolvedAt: ago(399 * 1440) };
+  const s = { historyDays: 90, official: { status: "operational", incidents: [old] }, incidents: [] };
+  assert.deepEqual(visibleIncidents(s, NOW).map((i) => i.id), ["cuid1"]);
+});
+
+test("the posted official status drives the banner, operational does not hide failures", () => {
+  const posted = (value) => status({}, { official: { status: value, message: null, incidents: [] } });
+  assert.equal(bannerKey(posted("operational"), NOW), "operational");
+  assert.equal(bannerKey(posted("degraded"), NOW), "degraded");
+  assert.equal(bannerKey(posted("maintenance"), NOW), "maintenance");
+  assert.equal(bannerKey(posted("down"), NOW), "down");
+  const failing = status({ app: "down" }, { official: { status: "operational", message: null, incidents: [] } });
+  assert.equal(bannerKey(failing, NOW), "down");
+});
+
+test("the banner reads the admin's message only while that status shows", () => {
+  const s = status({}, { official: { status: "maintenance", message: "Upgrade tonight.", incidents: [] } });
+  assert.equal(bannerBody(s, "maintenance"), "Upgrade tonight.");
+  assert.equal(bannerBody(s, "down"), BANNERS.down.body);
+  const silent = status({}, { official: { status: "maintenance", message: null, incidents: [] } });
+  assert.equal(bannerBody(silent, "maintenance"), BANNERS.maintenance.body);
+  assert.equal(bannerBody(status({}), "operational"), BANNERS.operational.body);
 });

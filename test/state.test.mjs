@@ -164,9 +164,12 @@ test("a corrupt or mismatched state is refused", () => {
 
 test("the public file only carries configured checks and known fields", () => {
   const state = play([pass]);
-  const output = buildPublicStatus(state, [], [], false, at(0), config);
+  const output = buildPublicStatus(state, [], false, at(0), config);
   assert.deepEqual(output.checks.map((c) => c.id), config.checks.map((c) => c.id));
   assert.ok(!("failStreak" in output.checks[0]));
+  // Response times, per-run results and provider reports stay out of the public file.
+  for (const field of ["recent", "lastMs"]) assert.ok(!(field in output.checks[0]), field);
+  assert.ok(!("providers" in output));
   assert.ok(!JSON.stringify(output).includes("Authorization"));
 });
 

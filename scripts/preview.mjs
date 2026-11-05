@@ -8,12 +8,6 @@ import { fileURLToPath } from "node:url";
 const SITE = fileURLToPath(new URL("../site/", import.meta.url));
 const TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".woff2": "font/woff2", ".png": "image/png", ".json": "application/json" };
 
-const PROVIDERS = [
-  { id: "vercel", name: "Vercel", role: "Hosting", page: "https://www.vercel-status.com", indicator: "none", description: "All Systems Operational", reachable: true, affected: [], incidents: [] },
-  { id: "supabase", name: "Supabase", role: "Database", page: "https://status.supabase.com", indicator: "none", description: "All Systems Operational", reachable: true, affected: [], incidents: [] },
-  { id: "brevo", name: "Brevo", role: "Email", page: "https://status.brevo.com", indicator: "none", description: "All Systems Operational", reachable: true, affected: [], incidents: [] },
-];
-
 const CHECKS = [
   ["app", "App", "The server answers requests", "down", 0],
   ["database", "Database", "The app can reach its database", "down", 0],
@@ -34,28 +28,6 @@ function days(now, overrides = {}) {
   return out;
 }
 
-function runs(now, last = "pass", note = null) {
-  const list = [];
-  for (let i = 29; i >= 0; i -= 1) {
-    const outcome = i === 0 ? last : i === 12 ? "slow" : "pass";
-    const ok = outcome !== "fail";
-    list.push({
-      at: new Date(now - i * 300000).toISOString(),
-      outcome,
-      ms: outcome === "slow" ? 3400 : outcome === "fail" ? 15000 : 380 + ((i * 37) % 120),
-      attempts: outcome === "fail" ? 3 : 1,
-      note: i === 0 ? note : null,
-      conditions: [
-        { name: "Status is 200", ok },
-        { name: "Served from kanbedu.com", ok },
-        { name: "Reports ok is true", ok },
-        { name: "Response under 3000 ms", ok: outcome === "pass" },
-      ],
-    });
-  }
-  return list;
-}
-
 function base(now, statusFor = () => "operational", opts = {}) {
   const at = new Date(now - (opts.ageMin ?? 2) * 60000).toISOString();
   return {
@@ -70,8 +42,6 @@ function base(now, statusFor = () => "operational", opts = {}) {
       return {
         id, name, description, severity, everyMinutes, status, since: at, lastRunAt: at,
         note: failing ? "Answered 500" : status === "degraded" ? "Slow response" : null,
-        lastMs: failing ? 15000 : 412,
-        recent: runs(now, failing ? "fail" : status === "degraded" ? "slow" : "pass", failing ? "Answered 500" : null),
         days: days(now, {
           3: { runs: 240, pass: 230, slow: 40, fail: 0, down: 0, msSum: 240 * 900, msCount: 240, msMax: 4000 },
           20: { runs: 240, pass: 220, slow: 0, fail: 20, down: 18, msSum: 220 * 500, msCount: 220, msMax: 2500 },
@@ -79,7 +49,7 @@ function base(now, statusFor = () => "operational", opts = {}) {
         }),
       };
     }),
-    providers: PROVIDERS,
+    official: null,
     incidents: [],
   };
 }
@@ -98,15 +68,15 @@ export function scenario(name, now = Date.now()) {
     case "database-down": return base(now, (id) => (id === "database" ? "down" : "operational"));
     case "delayed": return base(now, () => "operational", { ageMin: 47 });
     case "maintenance": return { ...base(now, () => "down"), incidents: [{ id: "maint", title: "Database maintenance", severity: "maintenance", message: "Scheduled maintenance is underway.\nKanbedu is currently undergoing maintenance. Some features may be temporarily unavailable while we work to improve the platform.", startedAt: new Date(now - 600000).toISOString(), resolvedAt: null }] };
-    case "provider-issue": return { ...base(now), providers: [{ ...PROVIDERS[0], indicator: "major", description: "Partial System Outage", affected: [{ name: "SIN1 - Singapore", status: "major_outage" }], incidents: [{ name: "Elevated errors in Singapore", status: "investigating" }] }, { ...PROVIDERS[1], indicator: "unknown", description: "Could not reach this provider's report", reachable: false }, PROVIDERS[2]] };
-    case "hostile": return { ...base(now), incidents: [{ id: "x", title: "<img src=x onerror=alert(1)>", severity: "down", message: "<script>window.__pwned=1</script>", startedAt: new Date(now - 60000).toISOString(), resolvedAt: null }], providers: [{ ...PROVIDERS[0], indicator: "major", description: "<b onclick=alert(1)>x</b>", incidents: [{ name: "<svg onload=alert(1)>", status: "x" }] }, PROVIDERS[1], PROVIDERS[2]] };
-    case "first-run": return { schemaVersion: 1, generatedAt: new Date(now).toISOString(), lastConclusiveAt: null, inconclusive: false, historyDays: 90, checks: CHECKS.map(([id, name, description, severity, everyMinutes]) => ({ id, name, description, severity, everyMinutes, status: "operational", since: null, note: null, lastRunAt: null, lastMs: null, recent: [], days: {} })), providers: PROVIDERS, incidents: [] };
+    case "official-mirror": return { ...base(now), official: { status: "maintenance", message: "Database upgrade tonight.\nBoards stay readable.", updatedAt: new Date(now).toISOString(), incidents: [{ id: "official-1", title: "Elevated errors on login and board access", severity: "down", message: "We identified an issue with database connectivity that caused elevated errors on login and other features.", startedAt: "2026-08-28T11:45:00.000Z", resolvedAt: "2026-08-28T13:18:00.000Z" }] } };
+    case "hostile": return { ...base(now), incidents: [{ id: "x", title: "<img src=x onerror=alert(1)>", severity: "down", message: "<script>window.__pwned=1</script>", startedAt: new Date(now - 60000).toISOString(), resolvedAt: null }] };
+    case "first-run": return { schemaVersion: 1, generatedAt: new Date(now).toISOString(), lastConclusiveAt: null, inconclusive: false, historyDays: 90, checks: CHECKS.map(([id, name, description, severity, everyMinutes]) => ({ id, name, description, severity, everyMinutes, status: "operational", since: null, note: null, lastRunAt: null, days: {} })), official: null, incidents: [] };
     case "bad-schema": return { schemaVersion: 99 };
     default: return null;
   }
 }
 
-const NAMES = ["operational", "checking", "degraded", "down", "database-down", "delayed", "maintenance", "provider-issue", "hostile", "first-run", "bad-schema", "missing-data"];
+const NAMES = ["operational", "checking", "degraded", "down", "database-down", "delayed", "maintenance", "official-mirror", "hostile", "first-run", "bad-schema", "missing-data"];
 
 export function startPreview(port = 4173) {
   const server = createServer(async (req, res) => {

@@ -155,7 +155,7 @@ export function applyRun(previous, results, providers, nowIso, cfg) {
 }
 
 // The public file. Contains no bodies, headers or raw errors.
-export function buildPublicStatus(state, providers, incidents, inconclusive, nowIso, cfg) {
+export function buildPublicStatus(state, incidents, inconclusive, nowIso, cfg) {
   return {
     schemaVersion: cfg.schemaVersion,
     generatedAt: nowIso,
@@ -174,12 +174,10 @@ export function buildPublicStatus(state, providers, incidents, inconclusive, now
         since: entry.since,
         note: entry.note,
         lastRunAt: entry.lastRunAt,
-        lastMs: entry.lastMs,
-        recent: entry.recent,
         days: entry.days,
       };
     }),
-    providers,
+    official: state.official ?? null,
     incidents,
   };
 }

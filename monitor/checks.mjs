@@ -1,6 +1,8 @@
 // Network layer. Publishes fixed labels only: response bodies and raw error
 // text never reach the public data file.
 
+import { parseOfficial } from "../site/logic.js";
+
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // Maps a fetch failure to a fixed public label.
@@ -172,5 +174,21 @@ export async function fetchProvider(provider, cfg, fetchImpl = fetch) {
     return parseProviderSummary(provider, text);
   } catch {
     return { id: provider.id, name: provider.name, role: provider.role, page: provider.page, indicator: "unknown", description: "Could not reach this provider's report", reachable: false, affected: [], incidents: [] };
+  }
+}
+
+// The official status and incidents. Returns null on any failure, so the last
+// good copy stays. A failure here says nothing about Kanbedu's health.
+export async function fetchOfficial(cfg, fetchImpl = fetch) {
+  try {
+    const response = await fetchImpl(cfg.officialUrl, {
+      headers: { "user-agent": cfg.userAgent, accept: "application/json" },
+      cache: "no-store",
+      signal: AbortSignal.timeout(cfg.timeoutMs),
+    });
+    if (response.status !== 200) return null;
+    return parseOfficial(JSON.parse(await readCapped(response, cfg.maxBodyBytes)));
+  } catch {
+    return null;
   }
 }

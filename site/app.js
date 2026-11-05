@@ -2,7 +2,7 @@
 import {
   BANNERS,
   SUPPORTED_SCHEMA,
-  averageMs,
+  bannerBody,
   bannerKey,
   checkLabel,
   dayBars,
@@ -11,15 +11,15 @@ import {
   formatStamp,
   incidentUpdates,
   isStale,
-  outcomeLabel,
-  plural,
-  providerLabel,
+  parseOfficial,
   relativeTime,
   uptimePercent,
   visibleIncidents,
 } from "./logic.js";
 
-const REFRESH_MS = 60000;
+const REFRESH_MS = 20000;
+const OFFICIAL_URL = "https://kanbedu.com/api/public/status";
+const OFFICIAL_TIMEOUT_MS = 8000;
 const root = document.getElementById("app");
 const tip = document.getElementById("tip");
 let current = null;
@@ -99,15 +99,11 @@ function renderBanner(status, now) {
   card.setAttribute("aria-live", "polite");
   const head = el("div", `banner-head tone-${banner.tone}`);
   head.append(el("span", key === "delayed" ? "dot" : "dot dot-pulse"), el("h2", "banner-label", banner.label));
-  card.append(head, el("p", "banner-body", banner.body));
+  card.append(head, el("p", "banner-body", bannerBody(status, key)));
   const stamp = status.lastConclusiveAt
     ? `Last completed check ${relativeTime(status.lastConclusiveAt, now)} (${formatStamp(status.lastConclusiveAt)})`
     : "No check has completed yet.";
   card.append(el("p", "banner-stamp", stamp));
-  const troubled = (status.providers ?? []).filter((p) => ["major", "critical"].includes(p.indicator));
-  if (troubled.length > 0) {
-    card.append(el("p", "banner-note", `${troubled.map((p) => p.name).join(" and ")} ${troubled.length === 1 ? "reports" : "report"} an issue of their own. See Service Providers below.`));
-  }
   return card;
 }
 
@@ -135,47 +131,6 @@ function renderDayStrip(check, now) {
   return wrap;
 }
 
-function renderRecentStrip(check) {
-  const recent = check.recent ?? [];
-  const wrap = el("div", "recent");
-  const average = averageMs(recent);
-  const head = el("div", "recent-head");
-  head.append(
-    el("span", null, "Recent checks"),
-    el("span", null, average === null ? "No response times yet" : `Average ${average} ms${check.lastMs != null ? `, latest ${check.lastMs} ms` : ""}`),
-  );
-  wrap.append(head);
-  if (recent.length === 0) {
-    wrap.append(el("p", "empty", "No checks yet."));
-    return wrap;
-  }
-  const strip = el("div", "strip ticks");
-  strip.tabIndex = 0;
-  strip.id = `recent-${check.id}`;
-  strip.setAttribute("role", "img");
-  strip.setAttribute("aria-label", `${check.name}, last ${plural(recent.length, "check")}. Use the arrow keys for each check.`);
-  const cells = recent.map((run, index) => {
-    const cell = el("span", `tick tick-${run.outcome}`);
-    cell.dataset.i = String(index);
-    return cell;
-  });
-  strip.append(...cells);
-  wireStrip(strip, cells, (i) => {
-    const run = recent[i];
-    const lines = [formatStamp(run.at), `${outcomeLabel(run.outcome)} in ${run.ms} ms`];
-    if (run.attempts > 1) lines.push(`After ${plural(run.attempts, "attempt")}`);
-    if (run.note) lines.push(run.note);
-    for (const condition of run.conditions ?? []) {
-      lines.push({ text: `${condition.ok ? "Pass" : "Fail"}: ${condition.name}`, className: condition.ok ? "cond-ok" : "cond-bad" });
-    }
-    return lines;
-  });
-  const foot = el("div", "strip-foot");
-  foot.append(el("span", null, relativeTime(recent[0].at, Date.now())), el("span", null, "Latest"));
-  wrap.append(strip, foot);
-  return wrap;
-}
-
 function renderChecks(status, now) {
   const section = el("section", "section");
   section.append(el("h2", "section-title", "Kanbedu"));
@@ -189,34 +144,7 @@ function renderChecks(status, now) {
     head.append(title, pill(label.tone, label.label));
     row.append(head);
     if (check.note && check.status !== "operational") row.append(el("p", "row-note", check.note));
-    row.append(renderDayStrip(check, now), renderRecentStrip(check));
-    card.append(row);
-  }
-  section.append(card);
-  return section;
-}
-
-function renderProviders(status) {
-  const section = el("section", "section");
-  section.append(el("h2", "section-title", "Service Providers"));
-  section.append(el("p", "section-desc", "What the companies Kanbedu runs on report about themselves. An issue here does not always affect Kanbedu."));
-  const card = el("div", "card rows");
-  for (const provider of status.providers ?? []) {
-    const label = providerLabel(provider);
-    const row = el("article", "row row-compact");
-    const head = el("div", "row-head");
-    const title = el("div");
-    const name = el("h3", "row-name");
-    const link = el("a", "text-link", provider.name);
-    link.href = provider.page;
-    link.rel = "noopener noreferrer";
-    name.append(link);
-    title.append(name, el("p", "row-desc", provider.role));
-    head.append(title, pill(label.tone, label.label));
-    row.append(head);
-    if (provider.indicator !== "none" && provider.description) row.append(el("p", "row-note", provider.description));
-    for (const incident of provider.incidents ?? []) row.append(el("p", "row-note", incident.name));
-    if ((provider.affected ?? []).length > 0) row.append(el("p", "row-note", `Affected: ${provider.affected.map((c) => c.name).join(", ")}`));
+    row.append(renderDayStrip(check, now));
     card.append(row);
   }
   section.append(card);
@@ -276,9 +204,24 @@ function render() {
   if (lastFetchFailed && !isStale(current, now)) {
     nodes.push(el("p", "fetch-note", "Could not refresh just now. Showing the last loaded data."));
   }
-  nodes.push(renderChecks(current, now), renderProviders(current), renderIncidents(current, now));
+  nodes.push(renderChecks(current, now), renderIncidents(current, now));
   root.replaceChildren(...nodes);
   if (focusedId) document.getElementById(focusedId)?.focus({ preventScroll: true });
+}
+
+// The newest official status and incidents, straight from the app. Returns null
+// when the app cannot answer, and the copy saved by the last monitor run stays.
+async function fetchOfficial() {
+  try {
+    const response = await fetch(OFFICIAL_URL, { signal: AbortSignal.timeout(OFFICIAL_TIMEOUT_MS) });
+    if (!response.ok) throw new Error(`Official status answered ${response.status}`);
+    const parsed = parseOfficial(await response.json());
+    if (!parsed) throw new Error("Official status was malformed");
+    return parsed;
+  } catch (error) {
+    console.warn(`Official status refresh failed: ${error.message}`);
+    return null;
+  }
 }
 
 async function refresh() {
@@ -293,8 +236,15 @@ async function refresh() {
     console.warn(`Status refresh failed: ${error.message}`);
   }
   lastFetchFailed = next === null;
-  const changed = next !== null && next.generatedAt !== current?.generatedAt;
+  const previousOfficial = JSON.stringify(current?.official ?? null);
+  const changedRun = next !== null && next.generatedAt !== current?.generatedAt;
   if (next !== null) current = next;
+  // Only once a monitor run has seen the route, so a missing route logs nothing.
+  if (current?.official) {
+    const official = await fetchOfficial();
+    if (official) current.official = official;
+  }
+  const changed = changedRun || JSON.stringify(current?.official ?? null) !== previousOfficial;
   // Leaves an open tooltip alone unless there is new data to show.
   if (changed || lastFetchFailed || !root.firstElementChild || tip.hidden) {
     try {

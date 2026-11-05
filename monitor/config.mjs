@@ -69,6 +69,10 @@ export const config = {
       severity: "degraded",
     },
   ],
+  // The official status and incidents the page mirrors.
+  officialUrl: `${BASE}/api/public/status`,
+  // Internal only: when Kanbedu and all of these fail together, the monitor lost
+  // its network, so the run is not recorded as an outage. Never published.
   providers: [
     { id: "vercel", name: "Vercel", role: "Hosting", url: "https://www.vercel-status.com/api/v2/summary.json", page: "https://www.vercel-status.com" },
     { id: "supabase", name: "Supabase", role: "Database", url: "https://status.supabase.com/api/v2/summary.json", page: "https://status.supabase.com" },

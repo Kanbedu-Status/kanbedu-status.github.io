@@ -46,15 +46,69 @@ export function isStale(status, nowMs) {
   return nowMs - Date.parse(status.lastConclusiveAt) > STALE_AFTER_MINUTES * MINUTE;
 }
 
+const OFFICIAL_STATUSES = new Set(["operational", "degraded", "maintenance", "down"]);
+const SEVERITIES = new Set(["degraded", "down", "maintenance"]);
+const isDate = (value) => typeof value === "string" && !Number.isNaN(Date.parse(value));
+const optionalText = (value, max) => (typeof value === "string" ? value.slice(0, max) : null);
+
+// Reduces kanbedu.com/api/public/status to known fields. Anything malformed
+// returns null, so the caller keeps its last good copy.
+export function parseOfficial(data) {
+  if (!data || typeof data !== "object" || !OFFICIAL_STATUSES.has(data.status) || !Array.isArray(data.incidents)) return null;
+  const incidents = [];
+  for (const item of data.incidents) {
+    if (!item || typeof item.id !== "string" || typeof item.title !== "string" || !SEVERITIES.has(item.severity)) return null;
+    if (!isDate(item.startedAt) || (item.resolvedAt != null && !isDate(item.resolvedAt))) return null;
+    incidents.push({
+      id: item.id.slice(0, 64),
+      title: item.title.slice(0, 200),
+      severity: item.severity,
+      message: optionalText(item.message, 2000),
+      startedAt: item.startedAt,
+      resolvedAt: item.resolvedAt ?? null,
+    });
+  }
+  return {
+    status: data.status,
+    message: optionalText(data.message, 2000),
+    updatedAt: isDate(data.updatedAt) ? data.updatedAt : null,
+    incidents,
+  };
+}
+
+const sameIncident = (a, b) => a.title === b.title && Math.floor(Date.parse(a.startedAt) / MINUTE) === Math.floor(Date.parse(b.startedAt) / MINUTE);
+
+// The official history comes first. A local entry stays only if the official
+// list does not already hold it, because local entries exist for when the app
+// is down and nobody can post there.
+export function allIncidents(status) {
+  const official = status.official?.incidents ?? [];
+  const local = (status.incidents ?? []).filter((i) => !official.some((o) => sameIncident(o, i)));
+  return [...official, ...local];
+}
+
 export function openIncidents(status) {
-  return (status.incidents ?? []).filter((i) => !i.resolvedAt);
+  return allIncidents(status).filter((i) => !i.resolvedAt);
+}
+
+// What an admin set on the official status page, or null when it is operational.
+function postedStatus(status) {
+  const posted = status.official?.status;
+  return posted && posted !== "operational" ? posted : null;
+}
+
+// An admin's message replaces the standard wording while that status is shown.
+export function bannerBody(status, key) {
+  const message = status.official?.message;
+  return postedStatus(status) === key && message ? message : BANNERS[key].body;
 }
 
 // Posted incidents outrank automatic checks for maintenance, because failures
 // are expected during it. Old check results never drive the banner.
 export function bannerKey(status, nowMs) {
   const open = openIncidents(status);
-  const incidentIs = (severity) => open.some((i) => i.severity === severity);
+  const posted = postedStatus(status);
+  const incidentIs = (severity) => posted === severity || open.some((i) => i.severity === severity);
   if (incidentIs("down")) return "down";
   if (incidentIs("maintenance")) return "maintenance";
   if (isStale(status, nowMs)) return incidentIs("degraded") ? "degraded" : "delayed";
@@ -79,19 +133,6 @@ export function checkLabel(check, nowMs, status) {
   if (!check.lastRunAt) return CHECK_LABELS.unknown;
   if (isStale(status, nowMs)) return CHECK_LABELS.stale;
   return CHECK_LABELS[check.status] ?? CHECK_LABELS.unknown;
-}
-
-export const PROVIDER_LABELS = {
-  none: { tone: "ok", label: "Operational" },
-  minor: { tone: "warn", label: "Minor issue reported" },
-  major: { tone: "bad", label: "Major issue reported" },
-  critical: { tone: "bad", label: "Critical issue reported" },
-  maintenance: { tone: "info", label: "Maintenance reported" },
-  unknown: { tone: "neutral", label: "Report unavailable" },
-};
-
-export function providerLabel(provider) {
-  return PROVIDER_LABELS[provider.indicator] ?? PROVIDER_LABELS.unknown;
 }
 
 function keyForMs(ms) {
@@ -182,21 +223,13 @@ export function dayTooltip(bar) {
 
 const OUTCOMES = { pass: "Passed", slow: "Slow", fail: "Failed", blocked: "Refused by host" };
 
-export function outcomeLabel(outcome) {
-  return OUTCOMES[outcome] ?? "Unknown";
-}
-
-export function averageMs(recent) {
-  const values = (recent ?? []).filter((r) => r.outcome === "pass" || r.outcome === "slow").map((r) => r.ms);
-  if (values.length === 0) return null;
-  return Math.round(values.reduce((a, b) => a + b, 0) / values.length);
-}
-
 // Newest first, kept to the history window. Open incidents are always kept.
+// Official incidents always show, matching the official page. Local entries age out.
 export function visibleIncidents(status, nowMs) {
   const windowMs = (status.historyDays ?? 90) * DAY;
-  return (status.incidents ?? [])
-    .filter((i) => !i.resolvedAt || nowMs - Date.parse(i.startedAt) <= windowMs)
+  const official = new Set((status.official?.incidents ?? []).map((i) => i.id));
+  return allIncidents(status)
+    .filter((i) => official.has(i.id) || !i.resolvedAt || nowMs - Date.parse(i.startedAt) <= windowMs)
     .sort((a, b) => Date.parse(b.startedAt) - Date.parse(a.startedAt));
 }
 

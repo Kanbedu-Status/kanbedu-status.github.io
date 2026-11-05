@@ -10,7 +10,7 @@ Each run of `.github/workflows/monitor.yml`:
 
 1. Restores history from the `status-data` branch.
 2. Checks the app, the database, and, every 30 minutes or sooner if something looks wrong, the website and log in page.
-3. Reads what Vercel, Supabase and Brevo report about themselves.
+3. Reads the official status and incidents from `kanbedu.com/api/public/status`, and what Vercel, Supabase and Brevo report about themselves. The provider reports are internal only and are never published.
 4. Saves history as one replacement commit on `status-data`, so the repository does not grow.
 5. Deploys `site/` plus `data/status.json` to GitHub Pages.
 
@@ -24,7 +24,8 @@ Each run of `.github/workflows/monitor.yml`:
 | Website or log in page down | Banner says Degraded |
 | No completed check for 30 minutes | Banner says Monitor Delayed, never a false green |
 | Host firewall refuses the monitor, or the monitor loses its network | Recorded as no result, not as an outage |
-| Provider reports an issue | Shown in its own section, banner unchanged |
+| Admin posts a status or incident on kanbedu.com | Shown here within about 30 seconds, because the page reads it from the app directly |
+| Kanbedu cannot answer | The last copy saved by the monitor stays on the page |
 | Open maintenance incident | Banner says Under Maintenance, even if checks fail |
 
 The job fails, and GitHub notifies whoever last edited the cron line, only when the monitor itself has a problem. Kanbedu being down is not a job failure.
@@ -46,7 +47,7 @@ Do not add a custom domain under `kanbedu.com`. GitHub would redirect the `githu
 
 ## Posting an incident
 
-Works from a phone, including during a full outage.
+Post on the admin dashboard at kanbedu.com: the incident shows here too. Use the file below only when the app is down and the dashboard cannot be reached. It works from a phone. A copy of an official incident, with the same title and start minute, shows once.
 
 1. Open `incidents/incidents.json` on GitHub and press the edit button.
 2. Add an entry, using the template below, and commit to `main`. The page updates in about a minute.
@@ -91,7 +92,7 @@ The preview runs at `http://localhost:4173` with fake data for every state. It i
 ## Limits
 
 - GitHub cron has a 5 minute minimum and can run late, especially under load.
-- Response times come from GitHub's servers, not Malaysia.
+- GitHub can delay or drop scheduled runs. After the first push on 2026-11-05 it ran the schedule once in 9.5 hours. A manual run proves nothing about the schedule, so read the run list.
 - It does not check signed-in actions, email delivery or notifications.
 - If GitHub Actions is down, the page shows Monitor Delayed. If GitHub Pages is down, the page is down.
 - GitHub's Actions terms limit hosted runners to activity related to the repository's own software project. Monitoring is common practice but sits in a grey area. If GitHub restricted it, the page would show Monitor Delayed and the checks would need a new home.

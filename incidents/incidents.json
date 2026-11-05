@@ -1,1 +1,10 @@
-[]
+[
+  {
+    "id": "2026-08-28-database",
+    "title": "Elevated errors on login and board access",
+    "severity": "down",
+    "message": "We identified an issue with database connectivity that caused elevated errors on login and other features.",
+    "startedAt": "2026-08-28T11:45:00Z",
+    "resolvedAt": "2026-08-28T13:18:00Z"
+  }
+]

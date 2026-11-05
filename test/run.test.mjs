@@ -29,6 +29,9 @@ function fakeFetch(overrides = {}, calls = []) {
     if (override === "throw") throw Object.assign(new TypeError("fetch failed"), { cause: { code: "ENOTFOUND" } });
     const status = override ?? 200;
     const isHealth = pathname === "/api/health";
+    if (pathname === "/api/public/status" && overrides.official) {
+      return { status, ok: status < 400, url, headers: new Headers(), body: new Response(JSON.stringify(overrides.official)).body };
+    }
     const isProvider = hostname !== "kanbedu.com";
     const text = isProvider ? JSON.stringify(PROVIDER) : isHealth ? JSON.stringify(HEALTH) : "<title>Kanbedu</title>";
     return { status, ok: status < 400, url, headers: new Headers(), body: new Response(text).body };
@@ -67,7 +70,7 @@ test("history survives across runs", async () => {
   const paths = await setup("survive");
   await monitorOnce({ ...paths, fetchImpl: fakeFetch() });
   const { publicStatus } = await monitorOnce({ ...paths, fetchImpl: fakeFetch() });
-  assert.equal(publicStatus.checks[0].recent.length, 2);
+  assert.equal(Object.values(publicStatus.checks[0].days)[0].runs, 2);
 });
 
 test("page checks skip when not due and run when health fails", async () => {
@@ -132,7 +135,7 @@ test("a provider outage does not change Kanbedu checks", async () => {
   const paths = await setup("provider");
   const { publicStatus } = await monitorOnce({ ...paths, fetchImpl: fakeFetch({ "status.supabase.com": "throw" }) });
   assert.ok(publicStatus.checks.every((c) => c.status === "operational"));
-  assert.equal(publicStatus.providers.find((p) => p.id === "supabase").indicator, "unknown");
+  assert.ok(!JSON.stringify(publicStatus).includes("Supabase"));
 });
 
 test("the published file holds no response bodies", async () => {
@@ -237,4 +240,40 @@ test("site copy does not depend on anything outside itself", async () => {
   const refs = [...html.matchAll(/(?:src|href)="(https?:[^"]+)"/g)].map((m) => m[1]);
   assert.ok(refs.every((r) => r.startsWith("https://kanbedu.com/")), refs.join());
   await cp(SITE, join(root, "site-copy"), { recursive: true });
+});
+
+const OFFICIAL = {
+  status: "operational",
+  message: null,
+  updatedAt: "2026-10-13T22:43:00.000Z",
+  incidents: [{ id: "cuid1", title: "Elevated errors", severity: "down", message: "Database issue.", startedAt: "2026-08-28T11:45:00.000Z", resolvedAt: "2026-08-28T13:18:00.000Z" }],
+};
+
+test("the official status is published, and the last copy survives a failed fetch", async () => {
+  const paths = await setup("official");
+  const first = await monitorOnce({ ...paths, fetchImpl: fakeFetch({ official: OFFICIAL }) });
+  assert.deepEqual(first.publicStatus.official, OFFICIAL);
+  const second = await monitorOnce({ ...paths, fetchImpl: fakeFetch({ "/api/public/status": 404 }) });
+  assert.deepEqual(second.publicStatus.official, OFFICIAL);
+  assert.equal(second.official, null);
+});
+
+test("a missing official route publishes nothing and fails nothing", async () => {
+  const paths = await setup("official-missing");
+  const { publicStatus } = await monitorOnce({ ...paths, fetchImpl: fakeFetch({ "/api/public/status": 404 }) });
+  assert.equal(publicStatus.official, null);
+  assert.ok(publicStatus.checks.every((c) => c.status === "operational"));
+});
+
+test("an error status is never read as an official answer, even with a valid body", async () => {
+  const paths = await setup("official-error");
+  const { publicStatus } = await monitorOnce({ ...paths, fetchImpl: fakeFetch({ official: OFFICIAL, "/api/public/status": 500 }) });
+  assert.equal(publicStatus.official, null);
+});
+
+test("a malformed official answer does not replace the last copy", async () => {
+  const paths = await setup("official-bad");
+  await monitorOnce({ ...paths, fetchImpl: fakeFetch({ official: OFFICIAL }) });
+  const { publicStatus } = await monitorOnce({ ...paths, fetchImpl: fakeFetch({ official: { status: "fine", incidents: "none" } }) });
+  assert.deepEqual(publicStatus.official, OFFICIAL);
 });

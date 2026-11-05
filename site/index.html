@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self'; connect-src 'self' https://kanbedu.com; base-uri 'none'; form-action 'none'">
   <meta name="referrer" content="no-referrer">
   <meta name="color-scheme" content="light dark">
   <meta name="description" content="Live availability for Kanbedu, checked from outside its hosting, with 90 days of history and past incidents.">
@@ -30,7 +30,7 @@
     </div>
   </main>
   <footer class="wrap site-footer">
-    <p>This page runs separately from Kanbedu, so it stays up during a Kanbedu outage. Checks run about every 5 minutes from GitHub's servers, can run late, and do not come from Malaysia, so response times are a guide. The website and log in page are checked every 30 minutes, or sooner if something looks wrong. It does not check signed-in actions, email delivery or notifications. Days and times are in Malaysia time (MYT).</p>
+    <p>This page runs separately from Kanbedu, so it stays up during a Kanbedu outage. Checks run from GitHub's servers and can run late. It does not check signed-in actions, email delivery or notifications. Days and times are in Malaysia time (MYT).</p>
   </footer>
   <div id="tip" class="tip" role="status" hidden></div>
   <script type="module" src="app.js"></script>

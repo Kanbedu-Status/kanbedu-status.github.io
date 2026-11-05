@@ -6,7 +6,7 @@ import { cp, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { config as defaultConfig } from "./config.mjs";
-import { fetchProvider, runCheck } from "./checks.mjs";
+import { fetchOfficial, fetchProvider, runCheck } from "./checks.mjs";
 import { validateIncidents } from "./incidents.mjs";
 import { applyRun, assertValidState, buildPublicStatus, emptyState, isDue } from "./state.mjs";
 
@@ -73,8 +73,10 @@ export async function monitorOnce({ stateDir, siteDir, outDir, incidentsPath, cf
   const startedAt = now().toISOString();
   const results = await runChecks(previous, startedAt, cfg, fetchImpl, wait);
   const providers = await Promise.all(cfg.providers.map((p) => fetchProvider(p, cfg, fetchImpl)));
+  const official = await fetchOfficial(cfg, fetchImpl);
   const { state, inconclusive } = applyRun(previous, results, providers, startedAt, cfg);
-  const publicStatus = buildPublicStatus(state, providers, incidents, inconclusive, startedAt, cfg);
+  if (official) state.official = official;
+  const publicStatus = buildPublicStatus(state, incidents, inconclusive, startedAt, cfg);
 
   await writeAtomic(statePath, JSON.stringify(state));
 
@@ -83,7 +85,7 @@ export async function monitorOnce({ stateDir, siteDir, outDir, incidentsPath, cf
   await mkdir(join(outDir, "data"), { recursive: true });
   await writeAtomic(join(outDir, "data", "status.json"), JSON.stringify(publicStatus));
 
-  return { state, publicStatus, inconclusive, incidentErrors };
+  return { state, publicStatus, providers, official, inconclusive, incidentErrors };
 }
 
 function parseArgs(argv) {
@@ -95,16 +97,17 @@ function parseArgs(argv) {
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const args = parseArgs(process.argv.slice(2));
   try {
-    const { publicStatus, inconclusive, incidentErrors } = await monitorOnce({
+    const { state, publicStatus, providers, official, inconclusive, incidentErrors } = await monitorOnce({
       stateDir: args.state ?? "state",
       siteDir: args.site ?? "site",
       outDir: args.out ?? "_site",
       incidentsPath: args.incidents ?? "incidents/incidents.json",
     });
     for (const check of publicStatus.checks) {
-      console.log(`${check.id}: ${check.status} ${check.lastMs ?? "-"} ms ${check.note ?? ""}`);
+      console.log(`${check.id}: ${check.status} ${state.checks[check.id]?.lastMs ?? "-"} ms ${check.note ?? ""}`);
     }
-    for (const provider of publicStatus.providers) console.log(`${provider.id}: ${provider.indicator}`);
+    for (const provider of providers) console.log(`${provider.id}: ${provider.indicator}`);
+    console.log(official ? `official: ${official.status}, ${official.incidents.length} incidents` : "official: no answer, kept the last copy");
     if (inconclusive) console.log("Run was inconclusive and was not recorded against Kanbedu.");
     if (incidentErrors.length > 0) {
       console.error("incidents/incidents.json is invalid. The last good list was published.");
