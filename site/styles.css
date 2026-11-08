@@ -65,7 +65,7 @@ a { color: inherit; }
 .brand { font-weight: 600; text-decoration: none; }
 .header-link { font-size: 12px; color: var(--muted); }
 .brand:hover, .header-link:hover { color: var(--muted); }
-.main { padding-top: 56px; padding-bottom: 32px; }
+.main { padding-top: 56px; padding-bottom: 64px; }
 .eyebrow { font-size: 15px; font-weight: 600; margin-bottom: 12px; }
 .title { font-size: 30px; line-height: 1.2; font-weight: 600; letter-spacing: -0.025em; margin-bottom: 32px; }
 
@@ -133,9 +133,6 @@ a { color: inherit; }
 .incident-text { line-height: 1.6; white-space: pre-line; overflow-wrap: anywhere; }
 .incident-text strong { font-weight: 600; }
 .incident-stamp { margin-top: 2px; font-size: 12px; color: var(--muted); }
-
-.site-footer { padding-top: 16px; padding-bottom: 48px; font-size: 12px; line-height: 1.6; color: var(--muted); }
-.site-footer p { border-top: 1px solid var(--border); padding-top: 16px; }
 
 .tip {
   position: fixed;
