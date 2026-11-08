@@ -89,3 +89,24 @@ jobs:
         run: |
           echo "::error::The monitor step failed. Read the Run checks step above."
           exit 1
+
+      - name: Confirm the live page updated
+        # Pages can report a deploy as successful and keep serving an older build
+        # (seen 2026-11-07 to 11-08). Fail the run so the stale page is noticed.
+        if: ${{ !cancelled() && steps.deploy.outcome == 'success' }}
+        env:
+          PAGE_URL: ${{ steps.deploy.outputs.page_url }}
+        run: |
+          want=$(node -p "require('./_site/data/status.json').generatedAt")
+          got="unreadable"
+          for attempt in $(seq 1 12); do
+            got=$(curl -fsS "${PAGE_URL}data/status.json?run=${GITHUB_RUN_ID}-${attempt}" \
+              | node -p "JSON.parse(require('fs').readFileSync(0)).generatedAt" || echo "unreadable")
+            if [ "$got" = "$want" ]; then
+              echo "Live page serves this run's data ($want)."
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::The live page still serves $got after deploying $want. GitHub Pages did not publish this deploy."
+          exit 1
