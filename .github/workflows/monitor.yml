@@ -108,5 +108,13 @@ jobs:
             fi
             sleep 10
           done
+          # A publish that lands a few minutes late happens about once in 80 runs
+          # and fixes itself on the next run. Fail only when the live data is
+          # more than 15 minutes (three runs) behind, as on 2026-11-08.
+          lag=$(WANT="$want" GOT="$got" node -p "const l = (Date.parse(process.env.WANT) - Date.parse(process.env.GOT)) / 1000; Number.isFinite(l) ? Math.round(l) : -1")
+          if [ "$lag" -ge 0 ] && [ "$lag" -le 900 ]; then
+            echo "::warning::The live page serves $got, ${lag}s behind this run ($want). Within 15 minutes, so not a failure."
+            exit 0
+          fi
           echo "::error::The live page still serves $got after deploying $want. GitHub Pages did not publish this deploy."
           exit 1
