@@ -14,6 +14,14 @@ for name in state.json incidents-last-good.json; do
   fi
 done
 
+# The page reads status.json from this branch, so it stays current when GitHub
+# Pages keeps serving an old deploy.
+if [ -s _site/data/status.json ]; then
+  blob=$(git hash-object -w _site/data/status.json)
+  entries="${entries}100644 blob ${blob}	status.json
+"
+fi
+
 tree=$(printf '%s' "$entries" | git mktree)
 commit=$(git -c user.name="kanbedu-status-monitor" -c user.email="monitor@users.noreply.github.com" commit-tree "$tree" -m "Monitor state")
 git push --quiet --force origin "${commit}:refs/heads/status-data"

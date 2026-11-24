@@ -1,5 +1,5 @@
 // Decides whether a stale live page fails the monitor run. Used by the
-// "Confirm the live page updated" step in .github/workflows/monitor.yml.
+// "Confirm the live data updated" step in .github/workflows/monitor.yml.
 //
 // GitHub Pages sometimes reports a deploy as successful and keeps serving an
 // older build for hours (2026-11-08, 2026-11-11). Every run during such an

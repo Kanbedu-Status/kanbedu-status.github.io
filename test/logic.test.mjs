@@ -13,6 +13,7 @@ import {
   formatStamp,
   incidentUpdates,
   isStale,
+  newestStatus,
   parseOfficial,
   plural,
   relativeTime,
@@ -239,4 +240,25 @@ test("the banner reads the admin's message only while that status shows", () => 
   const silent = status({}, { official: { status: "maintenance", message: null, incidents: [] } });
   assert.equal(bannerBody(silent, "maintenance"), BANNERS.maintenance.body);
   assert.equal(bannerBody(status({}), "operational"), BANNERS.operational.body);
+});
+
+test("newestStatus picks the most recent usable copy", () => {
+  const branch = { schemaVersion: 1, generatedAt: "2026-11-24T08:10:00Z", from: "branch" };
+  const pages = { schemaVersion: 1, generatedAt: "2026-11-23T15:20:00Z", from: "pages" };
+  assert.equal(newestStatus([branch, pages]).from, "branch");
+  assert.equal(newestStatus([pages, branch]).from, "branch");
+});
+
+test("newestStatus falls back when one copy is missing or unusable", () => {
+  const pages = { schemaVersion: 1, generatedAt: "2026-11-23T15:20:00Z", from: "pages" };
+  assert.equal(newestStatus([null, pages]).from, "pages");
+  assert.equal(newestStatus([{ schemaVersion: 2, generatedAt: "2026-11-24T08:10:00Z" }, pages]).from, "pages");
+  assert.equal(newestStatus([{ schemaVersion: 1, generatedAt: "not a date" }, pages]).from, "pages");
+  assert.equal(newestStatus([undefined, pages]).from, "pages");
+});
+
+test("newestStatus returns null when no copy is usable", () => {
+  assert.equal(newestStatus([null, null]), null);
+  assert.equal(newestStatus([]), null);
+  assert.equal(newestStatus([{ schemaVersion: 1 }]), null);
 });

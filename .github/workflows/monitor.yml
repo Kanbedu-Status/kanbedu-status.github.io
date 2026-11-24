@@ -59,9 +59,24 @@ jobs:
         run: node monitor/run.mjs --state state --site site --out _site --incidents incidents/incidents.json
 
       - name: Save state
+        id: save
+        # Also publishes status.json on the status-data branch, which the page reads.
         run: bash scripts/save-state.sh
 
+      - name: Decide whether to deploy the site
+        id: pages
+        # The page reads live data from status-data, so Pages only needs a deploy
+        # when the site changes, plus one an hour as a fallback copy of the data.
+        # Deploying every 5 minutes left Pages stuck on old builds for hours.
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "push" ] || [ "$(date -u +%M)" -lt 5 ]; then
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "deploy=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Upload site
+        if: steps.pages.outputs.deploy == 'true'
         # v5.0.0
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9
         with:
@@ -69,6 +84,10 @@ jobs:
 
       - name: Deploy site
         id: deploy
+        if: steps.pages.outputs.deploy == 'true'
+        # A failed Pages deploy no longer hides live data, so it only fails the run
+        # when it ships a site change.
+        continue-on-error: ${{ github.event_name != 'push' }}
         # v5.0.1
         uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346
 
@@ -90,33 +109,33 @@ jobs:
           echo "::error::The monitor step failed. Read the Run checks step above."
           exit 1
 
-      - name: Confirm the live page updated
-        # Pages can report a deploy as successful and keep serving an older build
-        # (seen 2026-11-07 to 11-08). Fail the run so the stale page is noticed.
-        if: ${{ !cancelled() && steps.deploy.outcome == 'success' }}
+      - name: Confirm the live data updated
+        # The page reads status.json from the status-data branch. Confirm that copy
+        # serves this run's data, so stale data on the page is noticed.
+        if: ${{ !cancelled() && steps.save.outcome == 'success' }}
         env:
-          PAGE_URL: ${{ steps.deploy.outputs.page_url }}
+          DATA_URL: https://raw.githubusercontent.com/${{ github.repository }}/status-data/status.json
         run: |
           want=$(node -p "require('./_site/data/status.json').generatedAt")
           got="unreadable"
           for attempt in $(seq 1 12); do
-            got=$(curl -fsS "${PAGE_URL}data/status.json?run=${GITHUB_RUN_ID}-${attempt}" \
+            got=$(curl -fsS "${DATA_URL}?run=${GITHUB_RUN_ID}-${attempt}" \
               | node -p "JSON.parse(require('fs').readFileSync(0)).generatedAt" || echo "unreadable")
             if [ "$got" = "$want" ]; then
-              echo "Live page serves this run's data ($want)."
+              echo "Live data serves this run's data ($want)."
               exit 0
             fi
             sleep 10
           done
-          # A publish up to 15 minutes late is normal. Past that, fail once when
-          # the page first goes stale and once every 6 hours while it stays
-          # stale; the runs in between warn, so one GitHub Pages outage sends
-          # a handful of failure emails, not one every 5 minutes
+          # Up to 15 minutes late is normal. Past that, fail once when the data
+          # first goes stale and once every 6 hours while it stays stale; the
+          # runs in between warn, so one outage sends a handful of failure
+          # emails, not one every 5 minutes
           # (scripts/live-page.mjs, test/live-page.test.mjs).
           read -r verdict lag < <(node scripts/live-page.mjs "$want" "$got")
           if [ "$verdict" = "warn" ]; then
-            echo "::warning::The live page serves $got, ${lag}s behind this run ($want). GitHub Pages has not published it yet."
+            echo "::warning::The live data serves $got, ${lag}s behind this run ($want). It has not updated yet."
             exit 0
           fi
-          echo "::error::The live page still serves $got after deploying $want (${lag}s behind). GitHub Pages did not publish this deploy."
+          echo "::error::The live data still serves $got after saving $want (${lag}s behind)."
           exit 1

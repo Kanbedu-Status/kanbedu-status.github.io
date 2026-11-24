@@ -41,6 +41,22 @@ export const BANNERS = {
   },
 };
 
+/**
+ * Picks the most recent usable copy of the status data. The page reads two
+ * copies (the status-data branch and the GitHub Pages deploy), because Pages
+ * can keep serving an old deploy for many hours. Returns null if none is usable.
+ */
+export function newestStatus(candidates) {
+  let best = null;
+  for (const candidate of candidates) {
+    if (candidate?.schemaVersion !== SUPPORTED_SCHEMA) continue;
+    const at = Date.parse(candidate.generatedAt);
+    if (Number.isNaN(at)) continue;
+    if (best === null || at > Date.parse(best.generatedAt)) best = candidate;
+  }
+  return best;
+}
+
 export function isStale(status, nowMs) {
   if (!status.lastConclusiveAt) return true;
   return nowMs - Date.parse(status.lastConclusiveAt) > STALE_AFTER_MINUTES * MINUTE;

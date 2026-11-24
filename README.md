@@ -11,8 +11,10 @@ Each run of `.github/workflows/monitor.yml`:
 1. Restores history from the `status-data` branch.
 2. Checks the app, the database, and, every 30 minutes or sooner if something looks wrong, the website and log in page.
 3. Reads the official status and incidents from `kanbedu.com/api/public/status`, and what Vercel, Supabase and Brevo report about themselves. The provider reports are internal only and are never published.
-4. Saves history as one replacement commit on `status-data`, so the repository does not grow.
-5. Deploys `site/` plus `data/status.json` to GitHub Pages.
+4. Saves history and the public `status.json` as one replacement commit on `status-data`, so the repository does not grow.
+5. Deploys `site/` plus `data/status.json` to GitHub Pages, only when the site changes and once an hour.
+
+The page reads `status.json` from the `status-data` branch (raw.githubusercontent.com) and from its own Pages copy, and shows whichever is newer. GitHub Pages can keep serving an old deploy for many hours (2026-11-08, 11-11, 11-13, 11-23), which showed Monitor Delayed while every check ran on time. The branch copy updates within seconds of each run.
 
 | Rule | Behavior |
 |---|---|

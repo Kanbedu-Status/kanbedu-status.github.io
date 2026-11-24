@@ -11,6 +11,7 @@ import {
   formatStamp,
   incidentUpdates,
   isStale,
+  newestStatus,
   parseOfficial,
   relativeTime,
   uptimePercent,
@@ -20,6 +21,14 @@ import {
 const REFRESH_MS = 20000;
 const OFFICIAL_URL = "https://kanbedu.com/api/public/status";
 const OFFICIAL_TIMEOUT_MS = 8000;
+// Every monitor run commits its data to the status-data branch, which is served
+// fresh within seconds. The Pages copy is a fallback: Pages can keep serving an
+// old deploy for many hours, which showed Monitor Delayed while checks ran fine.
+const DATA_URLS = [
+  "https://raw.githubusercontent.com/Kanbedu-Status/kanbedu-status.github.io/status-data/status.json",
+  "data/status.json",
+];
+const DATA_TIMEOUT_MS = 8000;
 const root = document.getElementById("app");
 const tip = document.getElementById("tip");
 let current = null;
@@ -224,17 +233,22 @@ async function fetchOfficial() {
   }
 }
 
-async function refresh() {
-  let next = null;
+async function fetchStatusCopy(url) {
   try {
-    const response = await fetch(`data/status.json?t=${Date.now()}`, { cache: "no-store" });
-    if (!response.ok) throw new Error(`Status data answered ${response.status}`);
+    const response = await fetch(`${url}?t=${Date.now()}`, { cache: "no-store", signal: AbortSignal.timeout(DATA_TIMEOUT_MS) });
+    if (!response.ok) throw new Error(`answered ${response.status}`);
     const parsed = await response.json();
-    if (parsed?.schemaVersion !== SUPPORTED_SCHEMA) throw new Error("Unsupported status data version");
-    next = parsed;
+    if (parsed?.schemaVersion !== SUPPORTED_SCHEMA) throw new Error("unsupported data version");
+    return parsed;
   } catch (error) {
-    console.warn(`Status refresh failed: ${error.message}`);
+    console.warn(`Status refresh from ${url} failed: ${error.message}`);
+    return null;
   }
+}
+
+async function refresh() {
+  const copies = await Promise.all(DATA_URLS.map(fetchStatusCopy));
+  const next = newestStatus(copies);
   lastFetchFailed = next === null;
   const previousOfficial = JSON.stringify(current?.official ?? null);
   const changedRun = next !== null && next.generatedAt !== current?.generatedAt;
